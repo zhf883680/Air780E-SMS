@@ -59,9 +59,9 @@ function forward_sms(num, txt)
 
     -- 判断短信内容是否包含“码”
     if txt:find("码", 1, true) then
-        body_tbl.level = "passive"
-    else
         body_tbl.level = "active"
+    else
+        body_tbl.level = "passive"
     end
 
     local body = json.encode(body_tbl)
