@@ -30,11 +30,11 @@ local buff = {}
 -- bark_url 不支持 TLSv1.3, 自建 Bark 服务端时，Nginx需要启用 TLSv1.2
 bark_url = "https://api.day.app/push"
 bark_key = "换成你自己的"
-
+  
 -- 辅助发送http Post 请求, 因为http库需要在task里运行
 function http_post(url, headers, body)
     sys.taskInit(function()
-        for i=1,10 do
+        for i = 1, 10 do
             local code, headers, body = http.request("POST", url, headers, body).wait()
             log.info("resp", code)
             log.info("body", body)
@@ -46,54 +46,66 @@ function http_post(url, headers, body)
     end)
 end
 
--- 短信转发
-function sms_handler(num, txt)
-    -- num 手机号码
-    -- txt 文本内容
-    log.info("sms", num, txt, txt:toHex())
+-- ================================================
+-- 转发短信函数
+-- ================================================
+function forward_sms(num, txt)
+    local body_tbl = {
+        title = num,
+        body = txt,
+        device_key = bark_key,
+        group = "SMS",
+    }
 
-    -- httt Post 发送 json
-    local body = json.encode({
-        title=num, 
-        body=txt,
-        device_key=bark_key
-    })
-    local headers = {}
-    headers["Content-Type"] = "application/json"
+    -- 判断短信内容是否包含“码”
+    if txt:find("码", 1, true) then
+        body_tbl.level = "passive"
+    else
+        body_tbl.level = "active"
+    end
+
+    local body = json.encode(body_tbl)
+    local headers = {["Content-Type"] = "application/json"}
     log.info("json", body)
     http_post(bark_url, headers, body)
 end
 
+-- ================================================
+-- 短信处理函数
+-- ================================================
+function sms_handler(num, txt)
+    log.info("sms", num, txt)
+    -- 固件已自动拼接长短信，直接转发
+    forward_sms(num, txt)
+end
 
---订阅短信消息
-sys.subscribe("SMS_INC",function(phone,data)
-    --来新消息了
-    log.info("notify","got sms",phone,data)
-    table.insert(buff,{phone,data})
-    sys.publish("SMS_ADD")--推个事件
+-- ================================================
+-- 订阅系统短信事件
+-- ================================================
+sys.subscribe("SMS_INC", function(phone, data)
+    log.info("notify", "got sms", phone, data)
+    table.insert(buff, {phone, data})
+    sys.publish("SMS_ADD") -- 推送事件，唤醒 task
 end)
 
---------------------------------------------------------------------
--- 接收短信, 支持多种方式, 选一种就可以了
--- 1. 设置回调函数
---sms.setNewSmsCb(sms_handler)
--- 2. 订阅系统消息
---sys.subscribe("SMS_INC", sms_handler)
--- 3. 在task里等着
+-- ================================================
+-- 短信处理任务循环
+-- ================================================
 sys.taskInit(function()
     while true do
-        print("ww",collectgarbage("count"))
-        while #buff > 0 do--把消息读完
-            collectgarbage("collect")--防止内存不足
-            local sms = table.remove(buff,1)
-            
+        print("ww", collectgarbage("count"))
+        while #buff > 0 do
+            collectgarbage("collect") -- 防止内存不足
+            local sms = table.remove(buff, 1)
             sms_handler(sms[1], sms[2])
         end
-        log.info("notify","wait for a new sms~")
-        print("zzz",collectgarbage("count"))
+        log.info("notify", "wait for a new sms~")
+        print("zzz", collectgarbage("count"))
         sys.waitUntil("SMS_ADD")
     end
 end)
+
+
 
 -------------------------------------------------------------------
 -- 发送短信, 直接调用sms.send就行, 是不是task无所谓
